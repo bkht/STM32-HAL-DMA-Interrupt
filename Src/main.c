@@ -39,6 +39,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "stm32f7xx_hal.h"
+#include <cstring>
 
 DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
 
@@ -47,7 +48,7 @@ DMA_HandleTypeDef hdma_memtomem_dma2_stream0;
 #define BUFFER_SIZE 32
 
 /* Store array data in FLASH memory */
-__align(4) const uint32_t srcBuffer[BUFFER_SIZE] =
+static const uint32_t srcBuffer[BUFFER_SIZE] =
 {
 	0x01020304, 0x05060708, 0x090A0B0C, 0x0D0E0F10,
 	0x11121314, 0x15161718, 0x191A1B1C, 0x1D1E1F20,
@@ -58,7 +59,7 @@ __align(4) const uint32_t srcBuffer[BUFFER_SIZE] =
 	0x61626364, 0x65666768, 0x696A6B6C, 0x6D6E6F70,
 	0x71727374, 0x75767778, 0x797A7B7C, 0x7D7E7F80
 };
-__align(4) uint32_t dstBuffer[BUFFER_SIZE];
+uint32_t dstBuffer[BUFFER_SIZE];
 
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
@@ -66,9 +67,10 @@ static void MX_DMA_Init(void);
 
 /* Private function prototypes -----------------------------------------------*/
 uint8_t BufferCmp(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len);
+uint8_t BufferCmp2(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len);
 static void XferCpltCallback(DMA_HandleTypeDef *DmaHandle);
 static void XferErrorCallback(DMA_HandleTypeDef *DmaHandle);
-
+static void XferHalfCpltCallback(DMA_HandleTypeDef *DmaHandle);
 /**
   * @brief  The application entry point.
   *
@@ -105,11 +107,20 @@ int main(void)
 
 #ifndef POLLING_DMA	
 	/* Setup callbacks, not sure this can be done without HAL_DMA_Init */
-	hdma_memtomem_dma2_stream0.XferCpltCallback = &XferCpltCallback;
-	hdma_memtomem_dma2_stream0.XferErrorCallback = &XferErrorCallback;
-#endif
-
-	/* Start the DMA transfer using polling mode */
+//	hdma_memtomem_dma2_stream0.XferCpltCallback = XferCpltCallback;
+//	hdma_memtomem_dma2_stream0.XferErrorCallback = XferErrorCallback;
+//	hdma_memtomem_dma2_stream0.XferHalfCpltCallback = XferHalfCpltCallback;
+	if (HAL_DMA_Start_IT(&hdma_memtomem_dma2_stream0, (uint32_t)&srcBuffer,
+			(uint32_t)&dstBuffer, BUFFER_SIZE) != HAL_OK)
+	{
+		/* Transfer Error: Blink Red LED for ever */
+		while(1)
+		{
+			HAL_GPIO_TogglePin (LED3_R_GPIO_Port, LED3_R_Pin);
+			HAL_Delay (100);
+		}
+	}
+#else
 	if (HAL_DMA_Start(&hdma_memtomem_dma2_stream0, (uint32_t)&srcBuffer,
 			(uint32_t)&dstBuffer, BUFFER_SIZE) != HAL_OK)
 	{
@@ -120,6 +131,9 @@ int main(void)
 			HAL_Delay (100);
 		}
 	}
+#endif
+
+	/* Start the DMA transfer using polling mode */
 
 	
 #ifdef POLLING_DMA
@@ -128,7 +142,7 @@ int main(void)
 	                        HAL_DMA_FULL_TRANSFER, 1000);
 	/* Compare the source and destination buffers */
 	// dstBuffer[4] = 0x12345678;	// Create difference
-	if(BufferCmp((uint32_t*)srcBuffer, (uint32_t*)dstBuffer, BUFFER_SIZE))
+	if(BufferCmp2((uint32_t*)srcBuffer, (uint32_t*)dstBuffer, BUFFER_SIZE))
 	{
 		/* Turn red LED on */
 		HAL_GPIO_WritePin(LED3_R_GPIO_Port, LED3_R_Pin, GPIO_PIN_SET);
@@ -230,16 +244,16 @@ static void MX_DMA_Init(void)
   hdma_memtomem_dma2_stream0.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
   hdma_memtomem_dma2_stream0.Init.Mode = DMA_NORMAL;
   hdma_memtomem_dma2_stream0.Init.Priority = DMA_PRIORITY_HIGH;
-  hdma_memtomem_dma2_stream0.Init.FIFOMode = DMA_FIFOMODE_ENABLE;
+  hdma_memtomem_dma2_stream0.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
   hdma_memtomem_dma2_stream0.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
   hdma_memtomem_dma2_stream0.Init.MemBurst = DMA_MBURST_SINGLE;
   hdma_memtomem_dma2_stream0.Init.PeriphBurst = DMA_PBURST_SINGLE;
-
 #ifndef POLLING_DMA	
   /* Set the transfer complete interrupt callback function,
 	 not sure it needs call to HAL_DMA_Init afterwards*/
-  hdma_memtomem_dma2_stream0.XferCpltCallback = &XferCpltCallback;
-  hdma_memtomem_dma2_stream0.XferErrorCallback = &XferErrorCallback;
+  hdma_memtomem_dma2_stream0.XferCpltCallback = XferCpltCallback;
+  hdma_memtomem_dma2_stream0.XferErrorCallback = XferErrorCallback;
+  hdma_memtomem_dma2_stream0.XferHalfCpltCallback = XferHalfCpltCallback;
 #endif
 
   if (HAL_DMA_Init(&hdma_memtomem_dma2_stream0) != HAL_OK)
@@ -402,6 +416,23 @@ uint8_t BufferCmp(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len)
 	return 0;
 }
 
+uint8_t BufferCmp2(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len)
+{
+	/* Memory compare */
+	/* http://www.cplusplus.com/reference/cstring/memcmp/ */
+	/* memcmp <cstring> */
+	if (memcmp(pBuff1, pBuff2, len) == 0) {
+		/* Turn on GREEN LED = Everything OK */
+//		TM_DISCO_LedOn(LED_GREEN);
+		return 0;
+	}
+//	else {
+//		/* Turn on RED LED = SPI error */
+//		TM_DISCO_LedOn(LED_RED);
+//	}
+	return 1;
+}
+
 /**
   * @brief  DMA conversion complete callback
   * @note   This function is executed when the transfer complete interrupt
@@ -409,6 +440,38 @@ uint8_t BufferCmp(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len)
   * @retval None
   */
 static void XferCpltCallback(DMA_HandleTypeDef *DmaHandle)
+{
+	if (DmaHandle->Instance == DMA2_Stream0 )
+	{
+		;
+	}
+	/* Compare the source and destination buffers */
+	if(BufferCmp2((uint32_t*)srcBuffer, (uint32_t*)dstBuffer, BUFFER_SIZE))
+	{
+		/* Turn red LED on */
+		HAL_GPIO_WritePin(LED3_R_GPIO_Port, LED3_R_Pin, GPIO_PIN_SET);
+	}
+	else
+	{
+		/* Turn green LED on */
+		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_SET);
+	}
+}
+
+static void XferErrorCallback(DMA_HandleTypeDef *DmaHandle)
+{
+	if (DmaHandle->Instance == DMA2_Stream0 )
+	{
+		;
+	}
+	/* Transfer Error: Blink LED3 */
+	while(1){
+		HAL_GPIO_TogglePin (LED3_R_GPIO_Port, LED3_R_Pin);
+		HAL_Delay (100);
+	}
+}
+
+static void XferHalfCpltCallback(DMA_HandleTypeDef *DmaHandle)
 {
 	if (DmaHandle->Instance == DMA2_Stream0 )
 	{
@@ -424,19 +487,6 @@ static void XferCpltCallback(DMA_HandleTypeDef *DmaHandle)
 	{
 	/* Turn green LED on */
 		HAL_GPIO_WritePin(LED1_G_GPIO_Port, LED1_G_Pin, GPIO_PIN_SET);
-	}
-}
-
-static void XferErrorCallback(DMA_HandleTypeDef *DmaHandle)
-{
-	if (DmaHandle->Instance == DMA2_Stream0 )
-	{
-		;
-	}
-	/* Transfer Error: Blink LED3 */
-	while(1){
-		HAL_GPIO_TogglePin (LED3_R_GPIO_Port, LED3_R_Pin);
-		HAL_Delay (100);
 	}
 }
 

@@ -421,16 +421,7 @@ uint8_t BufferCmp2(uint32_t* pBuff1, uint32_t* pBuff2, uint16_t len)
 	/* Memory compare */
 	/* http://www.cplusplus.com/reference/cstring/memcmp/ */
 	/* memcmp <cstring> */
-	if (memcmp(pBuff1, pBuff2, len) == 0) {
-		/* Turn on GREEN LED = Everything OK */
-//		TM_DISCO_LedOn(LED_GREEN);
-		return 0;
-	}
-//	else {
-//		/* Turn on RED LED = SPI error */
-//		TM_DISCO_LedOn(LED_RED);
-//	}
-	return 1;
+	return memcmp(pBuff1, pBuff2, len);
 }
 
 /**
